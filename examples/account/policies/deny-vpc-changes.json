@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyVpcChanges",
+      "Effect": "Deny",
+      "Action": [
+        "ec2:CreateVpc",
+        "ec2:DeleteVpc",
+        "ec2:CreateSubnet",
+        "ec2:CreateInternetGateway",
+        "ec2:CreateVpcPeeringConnection",
+        "ec2:CreateTransitGateway*",
+        "ec2:CreateRoute",
+        "directconnect:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

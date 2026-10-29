@@ -1,0 +1,24 @@
+# Consumer side: how a pipeline uses the service connection (no secret anywhere).
+# `AWS-SC` is an "AWS" service connection configured with the role ARN output by
+# the Terraform stack (see docs/azure-devops-setup.md).
+trigger: none
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - task: AWSShellScript@1
+    displayName: Who am I?
+    inputs:
+      awsCredentials: AWS-SC
+      regionName: eu-west-1
+      scriptType: inline
+      inlineScript: aws sts get-caller-identity
+
+  - task: AWSCLI@1
+    displayName: Example AWS CLI call
+    inputs:
+      awsCredentials: AWS-SC
+      regionName: eu-west-1
+      awsCommand: s3
+      awsSubCommand: ls

@@ -1,0 +1,23 @@
+region     = "eu-west-1"
+issuer_url = "vstoken.dev.azure.com/00000000-0000-0000-0000-000000000000" # copy from the service connection
+
+# deployer_role_arn = "arn:aws:iam::111111111111:role/terraform-deployer"
+
+roles = {
+  "azdo-myapp-dev" = {
+    service_connections = [
+      { organization = "my-org", project = "my-project", name = "aws-myapp-dev" },
+    ]
+    managed_policy_arns = ["arn:aws:iam::aws:policy/PowerUserAccess"]
+    inline_policy_files = ["deny-vpc-changes.json"]
+  }
+  "azdo-myapp-prod" = {
+    service_connections = [
+      { organization = "my-org", project = "my-project", name = "aws-myapp-prod" },
+    ]
+    managed_policy_arns  = ["arn:aws:iam::aws:policy/ReadOnlyAccess"]
+    max_session_duration = 7200
+  }
+}
+
+tags = { ManagedBy = "terraform" }
