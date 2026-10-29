@@ -1,45 +1,45 @@
 # azdo-aws-oidc
 
-Authentifier des pipelines **Azure DevOps** auprès d'**AWS** via **OIDC** (workload identity federation), sans clé d'accès longue durée.
+Authenticate **Azure DevOps** pipelines to **AWS** with **OIDC** (workload identity federation), with no long-lived access keys.
 
-- Deux modules Terraform composables : `oidc-provider` (1 par compte) et `oidc-role` (1 par service connection / environnement).
-- Un exemple de stack par compte, des tests natifs (`terraform test`, sans accès AWS) et un pipeline consommateur.
-- Documentation : [architecture (schémas)](docs/architecture.md), [design](docs/design.md), [configuration Azure DevOps](docs/azure-devops-setup.md), [dépannage](docs/troubleshooting.md).
+- Two composable Terraform modules: `oidc-provider` (one per account) and `oidc-role` (one per service connection / environment).
+- A per-account example stack, native tests (`terraform test`, no AWS access needed) and a consumer pipeline.
+- Documentation: [architecture (diagrams)](docs/architecture.md), [design](docs/design.md), [Azure DevOps setup](docs/azure-devops-setup.md), [troubleshooting](docs/troubleshooting.md).
 
-## Principe
+## How it works
 
 ```mermaid
 sequenceDiagram
     participant P as Pipeline (Azure DevOps)
-    participant SC as Service connection AWS (OIDC)
+    participant SC as AWS service connection (OIDC)
     participant STS as AWS STS
     participant IAM as IAM Role
-    P->>SC: utilise la connexion (awsCredentials)
-    SC->>SC: émet un JWT (iss, aud, sub = sc://org/projet/connexion)
+    P->>SC: uses the connection (awsCredentials)
+    SC->>SC: issues a JWT (iss, aud, sub = sc://org/project/connection)
     SC->>STS: AssumeRoleWithWebIdentity(JWT, RoleArn)
-    STS->>STS: vérifie signature (provider IAM) + conditions aud/sub (trust policy)
-    STS-->>P: credentials temporaires
-    P->>IAM: appels AWS selon les policies du rôle
+    STS->>STS: verifies signature (IAM provider) + aud/sub conditions (trust policy)
+    STS-->>P: temporary credentials
+    P->>IAM: AWS API calls, limited by the role policies
 ```
 
-## Utilisation rapide
+## Quick start
 
 ```bash
 cd examples/account
-cp terraform.tfvars.example terraform.tfvars   # adapter issuer_url, org/projet/connexions
-terraform init -backend-config=...             # un state par compte AWS
+cp terraform.tfvars.example terraform.tfvars   # set issuer_url, org/project/connections
+terraform init -backend-config=...             # one state per AWS account
 terraform apply
-terraform output role_arns                      # -> à saisir dans la service connection
+terraform output role_arns                      # -> value for the service connection
 ```
 
-Puis créer la service connection dans Azure DevOps : [docs/azure-devops-setup.md](docs/azure-devops-setup.md).
+Then create the service connection in Azure DevOps: [docs/azure-devops-setup.md](docs/azure-devops-setup.md).
 
 ## Modules
 
-| Module | Rôle | Entrées clés | Sorties |
+| Module | Purpose | Key inputs | Outputs |
 |---|---|---|---|
-| `modules/oidc-provider` | `aws_iam_openid_connect_provider` pour l'issuer Azure DevOps | `issuer_url`, `client_id_list` | `arn`, `host` |
-| `modules/oidc-role` | Rôle IAM + trust policy `aud`/`sub` + policies | `provider_arn`, `provider_host`, `service_connections`, `managed_policy_arns`, `inline_policies` | `role_arn`, `role_name`, `subjects` |
+| `modules/oidc-provider` | `aws_iam_openid_connect_provider` for the Azure DevOps issuer | `issuer_url`, `client_id_list` | `arn`, `host` |
+| `modules/oidc-role` | IAM role + `aud`/`sub` trust policy + policies | `provider_arn`, `provider_host`, `service_connections`, `managed_policy_arns`, `inline_policies` | `role_arn`, `role_name`, `subjects` |
 
 ## Tests
 
@@ -48,6 +48,6 @@ for m in modules/oidc-provider modules/oidc-role; do (cd $m && terraform init -b
 cd examples/account && terraform init -backend=false && terraform validate
 ```
 
-## Avertissement : issuer en cours de dépréciation
+## Warning: issuer being deprecated
 
-Microsoft annonce le retrait de l'issuer `https://vstoken.dev.azure.com/<guid>` au **1er juillet 2027** pour les service connections *Azure Resource Manager* ; les nouvelles utilisent l'issuer Microsoft Entra. L'impact exact sur les service connections *AWS* n'est pas confirmé par la documentation consultée : voir [design.md §Risques](docs/design.md#risques-et-points-ouverts). Les modules sont indépendants de l'issuer (`issuer_url` + `subjects`) pour absorber ce changement.
+Microsoft announces the retirement of the `https://vstoken.dev.azure.com/<guid>` issuer on **July 1, 2027** for *Azure Resource Manager* service connections; new ones use the Microsoft Entra issuer. The documentation I consulted does not confirm the exact impact on *AWS* service connections: see [design.md, Risks](docs/design.md#risks-and-open-points). The modules are issuer-agnostic (`issuer_url` + `subjects`) to absorb that change.

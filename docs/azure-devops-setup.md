@@ -1,31 +1,31 @@
-# Configuration côté Azure DevOps
+# Azure DevOps setup
 
-Prérequis : l'extension **AWS Toolkit for Azure DevOps** installée dans l'organisation, et le rôle IAM déjà créé (`terraform output role_arns`).
+Prerequisites: the **AWS Toolkit for Azure DevOps** extension installed in the organization, and the IAM role already created (`terraform output role_arns`).
 
-## 1. Récupérer issuer et sujet
+## 1. Get the issuer and subject
 
-Dans le projet : *Project settings → Pipelines → Service connections → New service connection → AWS*, choisir l'authentification par **OIDC / workload identity federation** et renseigner :
+In the project: *Project settings → Pipelines → Service connections → New service connection → AWS*, choose **OIDC / workload identity federation** authentication and fill in:
 
-- **Role to assume** : l'ARN du rôle (`role_arns`).
-- **Service connection name** : le nom exact ; il entre dans le `sub`.
+- **Role to assume**: the role ARN (`role_arns`).
+- **Service connection name**: the exact name; it becomes part of the `sub`.
 
-Relever l'**issuer** et le **subject identifier** affichés (brouillon / « Keep as draft » si proposé). Ce sont les valeurs de référence :
+Note the **issuer** and the **subject identifier** displayed (use "Keep as draft" if offered). These are the reference values for:
 
-- `issuer_url` du module `oidc-provider` ;
-- `sc://<organisation>/<projet>/<nom>` pour `service_connections` (ou `subjects` si le format diffère).
+- `issuer_url` of the `oidc-provider` module;
+- `sc://<organization>/<project>/<name>` for `service_connections` (or `subjects` if the format differs).
 
-> L'ordre pratique : brouillon de connexion → relever issuer/sujet → `terraform apply` → finaliser et vérifier la connexion.
+> Practical order: draft connection → note issuer/subject → `terraform apply` → finish and verify the connection.
 
-## 2. Sécuriser la connexion
+## 2. Secure the connection
 
-- Ne **pas** cocher « Grant access permission to all pipelines » : autoriser chaque pipeline explicitement.
-- Ajouter des *Approvals and checks* (approbation, restriction de branche) sur les connexions de production.
-- Une connexion (et un rôle) par environnement.
+- Do **not** tick "Grant access permission to all pipelines": authorize each pipeline explicitly.
+- Add *Approvals and checks* (approval, branch restriction) on production connections.
+- One connection (and one role) per environment.
 
-## 3. Utiliser la connexion
+## 3. Use the connection
 
-Voir [`pipelines/azure-pipelines.example.yml`](../pipelines/azure-pipelines.example.yml) (`AWSShellScript@1`, `AWSCLI@1` avec `awsCredentials: <nom de la connexion>`). Aucun secret dans le pipeline.
+See [`pipelines/azure-pipelines.example.yml`](../pipelines/azure-pipelines.example.yml) (`AWSShellScript@1`, `AWSCLI@1` with `awsCredentials: <connection name>`). No secret in the pipeline.
 
-## 4. Vérifier
+## 4. Verify
 
-Exécuter la tâche `aws sts get-caller-identity` : l'ARN retourné doit être `…assumed-role/<nom du rôle>/…`.
+Run the task `aws sts get-caller-identity`: the returned ARN must be `…assumed-role/<role name>/…`.

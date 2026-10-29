@@ -1,71 +1,72 @@
 # Design
 
-## Objectif
+## Goal
 
-Donner à des pipelines Azure DevOps un accès AWS **temporaire, sans secret stocké**, avec un périmètre limité par environnement.
+Give Azure DevOps pipelines **temporary AWS access with no stored secret**, scoped per environment.
 
 ## Architecture
 
 ```
-Azure DevOps                                   Compte AWS cible
+Azure DevOps                                   Target AWS account
 ┌───────────────────────────┐                 ┌──────────────────────────────────┐
 │ Pipeline                  │                 │ IAM OIDC provider (issuer_url)   │
-│  └─ task AWS Toolkit      │  1. JWT         │        │ valide la signature     │
+│  └─ AWS Toolkit task      │  1. JWT         │        │ validates signature     │
 │      └─ Service connection├────────────────►│ STS AssumeRoleWithWebIdentity    │
 │         AWS (OIDC)        │                 │        │ trust policy: aud + sub │
-│  sub = sc://org/proj/name │  2. creds temp  │ IAM Role (policies moindre priv.)│
+│  sub = sc://org/proj/name │  2. temp creds  │ IAM Role (least privilege)       │
 │                           │◄────────────────┤                                  │
-└───────────────────────────┘  3. appels API  └──────────────────────────────────┘
+└───────────────────────────┘  3. API calls   └──────────────────────────────────┘
 ```
 
-Une fois par compte : 1 provider. Par environnement : 1 rôle lié à 1 service connection (ou quelques-unes).
+Once per account: one provider. Per environment: one role bound to one service connection (or a few).
+See [architecture.md](architecture.md) for the diagrams.
 
-## Contrat de confiance
+## Trust contract
 
-| Claim | Valeur | Contrôlé par |
+| Claim | Value | Enforced by |
 |---|---|---|
-| `iss` | URL de l'issuer (cf. `issuer_url`) | le provider IAM (URL du provider) |
-| `aud` | `api://AzureADTokenExchange` | condition `StringEquals <host>:aud` |
-| `sub` | `sc://<organisation>/<projet>/<service connection>` | condition `StringEquals <host>:sub` |
+| `iss` | Issuer URL (see `issuer_url`) | the IAM provider (provider URL) |
+| `aud` | `api://AzureADTokenExchange` | `StringEquals <host>:aud` condition |
+| `sub` | `sc://<organization>/<project>/<service connection>` | `StringEquals <host>:sub` condition |
 
-Conséquences à connaître :
+Consequences:
 
-- Le `sub` identifie la **service connection**, pas le pipeline ni la branche (contrairement à GitHub Actions). AWS ne peut donc pas distinguer deux pipelines utilisant la même connexion. La séparation fine se fait **côté Azure DevOps** : autorisation par pipeline, approvals et checks sur la connexion, branche protégée.
-- Règle retenue : **une service connection et un rôle par environnement** (dev / inte / prod), jamais une connexion partagée entre prod et non-prod.
-- `sub` est sensible à la casse et doit correspondre exactement (espaces compris dans les noms de projet).
+- `sub` identifies the **service connection**, not the pipeline or the branch (unlike GitHub Actions). AWS cannot tell apart two pipelines using the same connection. Fine-grained separation happens **on the Azure DevOps side**: per-pipeline authorization, approvals and checks on the connection, protected branches.
+- Rule: **one service connection and one role per environment** (dev / test / prod); never share a connection between prod and non-prod.
+- `sub` is case sensitive and must match exactly (including spaces in project names).
 
-## Décisions
+## Decisions
 
-| # | Décision | Raison |
+| # | Decision | Rationale |
 |---|---|---|
-| D1 | Séparer `oidc-provider` et `oidc-role` | Un compte ne peut avoir qu'un provider par URL ; plusieurs rôles doivent le partager. Un module unique « provider + rôle » empêche d'avoir deux rôles dans un même compte (le second provider échouerait : URL déjà enregistrée). |
-| D2 | `aws_iam_policy_document` pour la trust policy | Fonction native du provider AWS, plutôt qu'un JSON assemblé à la main. |
-| D3 | `Principal.Federated` = ARN du provider (output) | Évite de reconstruire l'ARN depuis l'ID de compte et l'URL. |
-| D4 | `for_each` sur clés statiques pour policies et attachements | Avec `count`, retirer une policy décale les index et recrée les autres. |
-| D5 | Pas de thumbprint par défaut | AWS valide la chaîne de certificats avec ses CA de confiance ; provider AWS ≥ 5.81 le rend optionnel. Plus de `ignore_changes` nécessaire. |
-| D6 | Preconditions : au moins un `sub`, jamais `*` seul | Un rôle sans condition `sub` ferait confiance à toutes les connexions de l'organisation. |
-| D7 | Pas de générateur de code | Générer du HCL par script (parsing de tfvars) pour contourner l'impossibilité de `for_each` sur les providers est fragile. Ici : **une stack par compte** (state et credentials distincts), pilotée par une matrice de pipeline. Pas de parsing maison. |
-| D8 | Tests `terraform test` + `mock_provider` | Validation de la logique (sub, garde-fous) sans identifiants AWS. |
-| D9 | Permissions : pas de `AdministratorAccess` par défaut | Le moindre privilège est un choix explicite de l'appelant ; l'exemple combine une policy managée et un `Deny` ciblé. |
+| D1 | Split `oidc-provider` and `oidc-role` | An account can hold only one provider per URL; several roles must share it. A single "provider + role" module prevents having two roles in the same account (the second provider would fail: URL already registered). |
+| D2 | `aws_iam_policy_document` for the trust policy | Native feature of the AWS provider, rather than hand-assembled JSON. |
+| D3 | `Principal.Federated` = provider ARN (output) | Avoids rebuilding the ARN from account ID and URL. |
+| D4 | `for_each` on static keys for policies and attachments | With `count`, removing one policy shifts the indexes and recreates the others. |
+| D5 | No thumbprint by default | AWS validates the certificate chain with its trusted CA library; AWS provider >= 5.81 makes it optional. No `ignore_changes` needed. |
+| D6 | Preconditions: at least one `sub`, never a bare `*` | A role without a `sub` condition would trust every connection of the organization. |
+| D7 | No code generator | Generating HCL with a script (parsing tfvars) to work around the lack of `for_each` on providers is fragile. Instead: **one stack per account** (separate state and credentials), driven by a pipeline matrix. |
+| D8 | `terraform test` + `mock_provider` | Validates the logic (sub, guard rails) without AWS credentials. |
+| D9 | No `AdministratorAccess` by default | Least privilege is an explicit choice of the caller; the example combines a managed policy and a targeted `Deny`. |
 
-## Déploiement multi-comptes
+## Multi-account deployment
 
-Terraform ne permet pas de `for_each` sur les providers. Option retenue : la même stack `examples/account` est exécutée **une fois par compte** :
+Terraform does not allow `for_each` over providers. Chosen approach: the same `examples/account` stack runs **once per account**:
 
-- backend S3 avec une clé de state par compte (`-backend-config="key=oidc/<account_id>.tfstate"`) ;
-- `deployer_role_arn` : rôle d'amorçage assumé dans le compte cible (ou credentials ambiants déjà dans le bon compte) ;
-- une matrice de jobs Azure DevOps (`strategy.matrix`) itère sur les comptes avec un fichier `*.tfvars` par compte.
+- S3 backend with one state key per account (`-backend-config="key=oidc/<account_id>.tfstate"`);
+- `deployer_role_arn`: bootstrap role assumed in the target account (or ambient credentials already in the right account);
+- an Azure DevOps job matrix (`strategy.matrix`) iterates over the accounts with one `*.tfvars` file per account.
 
-Alternative à évaluer si le nombre de comptes grandit : Terraform Stacks (`for_each` sur des déploiements/providers).
+Alternative to consider if the number of accounts grows: Terraform Stacks (`for_each` over deployments/providers).
 
-## Risques et points ouverts
+## Risks and open points
 
-1. **Dépréciation de l'issuer `vstoken.dev.azure.com`** (retrait annoncé le 1er juillet 2027, source Microsoft Learn *Configure workload identity*). La page vise explicitement les connexions *Azure Resource Manager* ; je n'ai pas trouvé de confirmation couvrant les connexions **AWS**. À vérifier avant d'industrialiser : créer une service connection AWS de test et lire l'issuer et le sujet affichés. Les modules acceptent un autre issuer (`issuer_url`) et des sujets bruts (`subjects`) ; il faudra alors un provider supplémentaire (ou le remplacement de l'ancien) et des rôles dont le `sub` suit le nouveau format.
-2. **Création des service connections** : l'enregistrement de la connexion AWS en mode OIDC se fait dans Azure DevOps (UI ou API). Je n'ai pas vérifié si le provider Terraform `azuredevops` expose ce mode ; le guide décrit donc la procédure manuelle.
-3. **Rôle d'amorçage** : le déploiement initial nécessite des droits IAM dans le compte (rôle de déploiement, SSO, ou agent managé). Hors du périmètre de ce dépôt.
+1. **Deprecation of the `vstoken.dev.azure.com` issuer** (retirement announced for July 1, 2027, source: Microsoft Learn, *Configure workload identity*). That page explicitly targets *Azure Resource Manager* connections; I found no confirmation covering **AWS** connections. Verify before industrializing: create a test AWS service connection and read the issuer and subject it displays. The modules accept another issuer (`issuer_url`) and raw subjects (`subjects`); you would then need an additional provider (or replace the old one) and roles whose `sub` follows the new format.
+2. **Creating service connections**: registering the AWS connection in OIDC mode is done in Azure DevOps (UI or API). I did not verify whether the `azuredevops` Terraform provider exposes this mode, so the guide describes the manual procedure.
+3. **Bootstrap role**: the initial deployment needs IAM rights in the account (deployment role, SSO, or managed agent). Out of scope for this repository.
 
 ## Sources
 
-- Documentation Microsoft Learn, *Set a Resource Manager workload identity service connection* (dépréciation de l'issuer).
-- Blog AWS DevOps, *Use OpenID Connect with AWS Toolkit for Azure DevOps* (trust policy `aud`/`sub`, OIDC + toolkit).
-- Blog AWS Modernizing, *How to federate into AWS from Azure DevOps using OpenID Connect*.
+- Microsoft Learn, *Set a Resource Manager workload identity service connection* (issuer deprecation).
+- AWS DevOps Blog, *Use OpenID Connect with AWS Toolkit for Azure DevOps* (`aud`/`sub` trust policy, OIDC + toolkit).
+- AWS Modernizing Blog, *How to federate into AWS from Azure DevOps using OpenID Connect*.
