@@ -76,7 +76,7 @@ variable "permissions_boundary_arn" {
 
 variable "max_session_duration" {
   type        = number
-  description = "Max session duration in seconds (3600-43200). Must cover the longest pipeline job that uses the role."
+  description = "Max session duration in seconds (3600-43200). Must be at least the pipeline variable aws.rolecredential.maxduration and cover the longest job."
   default     = 3600
 
   validation {

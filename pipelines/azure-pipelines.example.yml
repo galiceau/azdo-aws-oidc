@@ -1,24 +1,32 @@
 # Consumer side: how a pipeline uses the service connection (no secret anywhere).
-# `AWS-SC` is an "AWS" service connection configured with the role ARN output by
-# the Terraform stack (see docs/azure-devops-setup.md).
+# `AWS-SC` is an "AWS" service connection with "Use OIDC" ticked and the role ARN
+# output by the Terraform stack (see docs/azure-devops-setup.md).
+#
+# First run (before the provider/role exist): the task fails, but its log contains an
+# "OIDC Token generated" line with the issuer, audience and subject to use in Terraform.
 trigger: none
 
 pool:
   vmImage: ubuntu-latest
 
+variables:
+  aws.rolecredential.maxduration: "3600" # 900-43200 s; must not exceed the role's max_session_duration
+
 steps:
-  - task: AWSShellScript@1
+  - task: AWSCLI@1
     displayName: Who am I?
     inputs:
       awsCredentials: AWS-SC
       regionName: eu-west-1
-      scriptType: inline
-      inlineScript: aws sts get-caller-identity
+      awsCommand: sts
+      awsSubCommand: get-caller-identity
 
-  - task: AWSCLI@1
-    displayName: Example AWS CLI call
+  # The same credentials can feed any tool (Terraform, kubectl, SDKs):
+  - task: AWSShellScript@1
+    displayName: Run a tool with the temporary credentials
     inputs:
       awsCredentials: AWS-SC
       regionName: eu-west-1
-      awsCommand: s3
-      awsSubCommand: ls
+      scriptType: inline
+      inlineScript: |
+        aws s3 ls

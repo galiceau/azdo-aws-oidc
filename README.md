@@ -50,9 +50,9 @@ for m in modules/oidc-provider modules/oidc-role; do (cd $m && terraform init -b
 cd examples/account && terraform init -backend=false && terraform validate
 ```
 
-## Warning: issuer being deprecated
+## Warning: issuer being retired
 
-Microsoft announces the retirement of the `https://vstoken.dev.azure.com/<guid>` issuer on **July 1, 2027** for *Azure Resource Manager* service connections; new ones use the Microsoft Entra issuer. The documentation I consulted does not confirm the exact impact on *AWS* service connections: see [design.md, Risks](docs/design.md#risks-and-open-points). The modules are issuer-agnostic (`issuer_url` + `subjects`) to absorb that change.
+The `https://vstoken.dev.azure.com/<guid>` issuer used by this setup (as in the [official AWS walkthrough](https://aws.amazon.com/blogs/modernizing-with-aws/how-to-federate-into-aws-from-azure-devops-using-openid-connect/)) is deprecated by Microsoft for Azure connections, with end of life on **July 1, 2027**, in favour of the Microsoft Entra issuer. Whether AWS service connections will follow, and whether AWS STS will then accept the token, is **not confirmed** (see [design.md, Risks](docs/design.md#risks-and-open-points) and [aws-toolkit-azure-devops#614](https://github.com/aws/aws-toolkit-azure-devops/issues/614)). The modules are issuer-agnostic (`issuer_url` + `subjects`) to limit the impact.
 
 ## Diagram
 

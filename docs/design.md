@@ -61,12 +61,29 @@ Alternative to consider if the number of accounts grows: Terraform Stacks (`for_
 
 ## Risks and open points
 
-1. **Deprecation of the `vstoken.dev.azure.com` issuer** (retirement announced for July 1, 2027, source: Microsoft Learn, *Configure workload identity*). That page explicitly targets *Azure Resource Manager* connections; I found no confirmation covering **AWS** connections. Verify before industrializing: create a test AWS service connection and read the issuer and subject it displays. The modules accept another issuer (`issuer_url`) and raw subjects (`subjects`); you would then need an additional provider (or replace the old one) and roles whose `sub` follows the new format.
-2. **Creating service connections**: registering the AWS connection in OIDC mode is done in Azure DevOps (UI or API). I did not verify whether the `azuredevops` Terraform provider exposes this mode, so the guide describes the manual procedure.
+1. **Azure DevOps issuer retirement: impact on AWS connections is not settled.**
+   What is documented (Microsoft DevOps Blog, 22 June 2026, and Microsoft Learn):
+   - Since November 2025, *new* workload identity federation service connections use the Microsoft Entra issuer (`https://login.microsoftonline.com/<tenant-id>/v2.0`). The Azure DevOps issuer (`https://vstoken.dev.azure.com/<org-guid>`) is deprecated from July 1, 2026 and reaches end of life on **July 1, 2027**.
+   - The announcement is scoped to connections that use single-tenant Microsoft Entra applications or managed identities, i.e. Azure connections. AWS service connections are neither.
+   - Microsoft's comparison table says a token from the Entra issuer "can only be exchanged for Microsoft Entra access tokens", whereas the Azure DevOps issuer token can be exchanged with other identity providers. That is the property AWS STS federation relies on.
+   - The Entra issuer uses another subject shape: `<microsoft entra prefix>/sc/<organization id>/<service connection id>` (immutable ids instead of names).
+   - The AWS Toolkit for Azure DevOps tracks the question in [aws-toolkit-azure-devops#614](https://github.com/aws/aws-toolkit-azure-devops/issues/614). The only analysis in that thread (a commenter reading the toolkit code, not an official statement) says the toolkit forwards whatever token Azure DevOps mints to STS without checking the issuer, so the timing depends on Microsoft, not on a toolkit change.
+
+   Conclusion: today (the official AWS blog flow) AWS connections still show the `vstoken.dev.azure.com` issuer. Whether Microsoft will move them to the Entra issuer, and whether AWS STS will still accept such a token, is **not confirmed**. Before industrializing: create a test AWS service connection, read the issuer and subject in the `OIDC Token generated` log line (see [azure-devops-setup.md](azure-devops-setup.md)), and follow issue #614.
+
+   Mitigations built in: `issuer_url` is a variable, `subjects` accepts raw values (e.g. the Entra subject shape), providers and roles are separate modules, so a second provider and new trust conditions can be added without recreating roles.
+
+   Fallbacks if AWS stops accepting Azure DevOps tokens (not implemented here):
+   - Self-hosted agents on EC2 with an instance profile (no federation needed; the toolkit picks up instance-metadata credentials).
+   - Microsoft Entra as the identity provider: a managed identity or app registration gets an Entra token for a custom audience, and AWS trusts `sts.windows.net/<tenant-id>/` (flow described in the AWS DevOps Blog post below).
+2. **Creating service connections**: registering the AWS connection in OIDC mode is done in Azure DevOps (UI or API; the AWS blog points to a GitHub comment on the toolkit repository for CLI/API automation). I did not verify whether the `azuredevops` Terraform provider exposes this mode, so the guide describes the manual procedure.
 3. **Bootstrap role**: the initial deployment needs IAM rights in the account (deployment role, SSO, or managed agent). Out of scope for this repository.
+4. **Toolkit version**: the OIDC option requires AWS Toolkit for Azure DevOps 1.15.0 or later.
 
 ## Sources
 
-- Microsoft Learn, *Set a Resource Manager workload identity service connection* (issuer deprecation).
-- AWS DevOps Blog, *Use OpenID Connect with AWS Toolkit for Azure DevOps* (`aud`/`sub` trust policy, OIDC + toolkit).
-- AWS Modernizing Blog, *How to federate into AWS from Azure DevOps using OpenID Connect*.
+- AWS Modernizing Blog, [How to federate into AWS from Azure DevOps using OpenID Connect](https://aws.amazon.com/blogs/modernizing-with-aws/how-to-federate-into-aws-from-azure-devops-using-openid-connect/) (reference flow: issuer, audience, subject, trust policy, `aws.rolecredential.maxduration`).
+- AWS DevOps Blog, [Use OpenID Connect with AWS Toolkit for Azure DevOps](https://aws.amazon.com/blogs/devops/use-openid-connect-with-aws-toolkit-for-azure-devops-to-perform-aws-codedeploy-deployments/) (Microsoft Entra as identity provider, `sts.windows.net` flavour).
+- Microsoft DevOps Blog, [Retirement of Azure DevOps issuer in Workload identity federation service connections](https://devblogs.microsoft.com/devops/retirement-of-azure-devops-issuer-in-workload-identity-federation-service-connections/).
+- Microsoft Learn, [Troubleshoot workload identity service connections](https://learn.microsoft.com/en-us/azure/devops/pipelines/release/troubleshoot-workload-identity) (issuer/subject comparison table) and [Set a Resource Manager workload identity service connection](https://learn.microsoft.com/en-us/azure/devops/pipelines/release/configure-workload-identity).
+- GitHub, [aws/aws-toolkit-azure-devops#614](https://github.com/aws/aws-toolkit-azure-devops/issues/614).

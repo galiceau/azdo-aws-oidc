@@ -5,7 +5,8 @@
 | `Not authorized to perform sts:AssumeRoleWithWebIdentity` | `sub` or `aud` does not match the trust policy | Compare the role's `subjects` output with the subject shown in the service connection: case, spaces, project, connection name. |
 | `No OpenIDConnect provider found in your account` | Provider missing in this account or different URL | Check `issuer_url` (no trailing `/`) and that the stack was applied in the right account. |
 | `Invalid identity token` / audience error | `client_id_list` does not contain the token audience | Keep `api://AzureADTokenExchange`, or the audience displayed by the connection. |
-| Connection flagged *deprecated* in Azure DevOps | `vstoken.dev.azure.com` issuer being retired | See [design.md, Risks](design.md#risks-and-open-points): add the new issuer and a matching role/`subjects`. |
+| Connection flagged *deprecated* in Azure DevOps, or issuer starts with `https://login.microsoftonline.com/` | Azure DevOps issuer being retired / connection moved to the Entra issuer | See [design.md, Risks](design.md#risks-and-open-points): use the issuer and subject shown in the `OIDC Token generated` log line, add a provider for the new issuer and pass the new subject shape through `subjects`. |
+| No `OIDC Token generated` line in the task log | AWS Toolkit older than 1.15.0, or "Use OIDC" not ticked on the connection | Update the extension and edit the service connection. |
 | `terraform apply`: "Provide at least one service_connections…" | Role without `sub` | Set `service_connections` or `subjects` (intentional guard rail). |
 | Session too short | `max_session_duration` shorter than the job | Increase `max_session_duration` (3600–43200 s). |
 
