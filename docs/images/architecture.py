@@ -5,6 +5,8 @@ Run from the repository root:  python3 docs/images/architecture.py
 from diagrams import Cluster, Diagram, Edge
 from diagrams.aws.general import General
 from diagrams.aws.security import IAM, IAMAWSSts, IAMPermissions, IAMRole
+from diagrams.aws.compute import EC2, EKS, Lambda
+from diagrams.aws.management import Cloudformation
 from diagrams.aws.storage import S3
 from diagrams.azure.devops import AzureDevops, Pipelines, Repos
 from diagrams.onprem.iac import Terraform
@@ -36,11 +38,12 @@ with Diagram(
         sts = IAMAWSSts("AWS STS")
         role = IAMRole("IAM role\ntrust: aud + sub")
         pol = IAMPermissions("IAM policies\n(least privilege)")
-        res = S3("AWS resources")
+        res = [Cloudformation("CloudFormation"), Lambda("Lambda"), EC2("EC2"), EKS("EKS"), S3("S3")]
         idp - Edge(style="dotted", dir="both") - sts
         sts >> Edge(label="3. temporary credentials  ", color="darkgreen") >> role
         pol >> role
-        role >> Edge(label="5. API calls  ", color="darkgreen") >> res
+        for i, r in enumerate(res):
+            role >> Edge(label="5. API calls  " if i == 0 else "", color="darkgreen") >> r
 
     sc >> Edge(label="1. JWT  ", color="darkorange", penwidth="2") >> idp
     sc >> Edge(label="2. AssumeRoleWith-\nWebIdentity  ", color="darkorange", penwidth="2") >> sts
